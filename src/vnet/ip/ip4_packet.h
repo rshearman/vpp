@@ -85,8 +85,7 @@ typedef struct
 
 typedef union
 {
-  struct
-  {
+  CLIB_PACKED (struct {
     /* 4 bit packet length (in 32bit units) and version VVVVLLLL.
        e.g. for packets w/ no options ip_version_and_header_length == 0x45. */
     u8 ip_version_and_header_length;
@@ -121,11 +120,12 @@ typedef union
     {
       struct
       {
-	ip4_address_t src_address, dst_address;
+        ip4_address_t src_address;
+        ip4_address_t dst_address;
       };
       ip4_address_pair_t address_pair;
     };
-  };
+  });
 
   /* For checksumming we'll want to access IP header in word sized chunks. */
   /* For 64 bit machines. */

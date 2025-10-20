@@ -290,8 +290,7 @@ ip6_address_hash_to_u64 (const ip6_address_t * a)
   return (a->as_u64[0] ^ a->as_u64[1]);
 }
 
-typedef struct
-{
+typedef CLIB_PACKED (struct {
   /* 4 bit version, 8 bit traffic class and 20 bit flow label. */
   u32 ip_version_traffic_class_and_flow_label;
 
@@ -306,8 +305,9 @@ typedef struct
   u8 hop_limit;
 
   /* Source and destination address. */
-  ip6_address_t src_address, dst_address;
-} ip6_header_t;
+  ip6_address_t src_address;
+  ip6_address_t dst_address;
+}) ip6_header_t;
 
 #define IP6_PACKET_TC_MASK 0x0FF00000
 #define IP6_PACKET_DSCP_MASK 0x0FC00000
