@@ -25,5 +25,8 @@ add_vpp_library (vlibapi
   api_types.h
   vat_helper_macros.h
   memory_shared.h
+
+  LINK_LIBRARIES
+  vppinfra svm
 )
 
