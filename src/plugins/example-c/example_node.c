@@ -72,29 +72,117 @@ VLIB_NODE_FN (example_node)
 
   vlib_get_buffers (vm, from, bufs, n_left);
 
+  while (n_left >= 4)
+    {
+      /* Prefetch next iteration */
+      if (PREDICT_TRUE (n_left >= 8))
+	{
+	  vlib_prefetch_buffer_header (b[4], LOAD);
+	  clib_prefetch_load (b[4]->data);
+	  vlib_prefetch_buffer_header (b[5], LOAD);
+	  clib_prefetch_load (b[5]->data);
+	  vlib_prefetch_buffer_header (b[6], LOAD);
+	  clib_prefetch_load (b[6]->data);
+	  vlib_prefetch_buffer_header (b[7], LOAD);
+	  clib_prefetch_load (b[7]->data);
+	}
+
+      ip4_header_t *ip0 = vlib_buffer_get_current (b[0]);
+      ip4_header_t *ip1 = vlib_buffer_get_current (b[1]);
+      ip4_header_t *ip2 = vlib_buffer_get_current (b[2]);
+      ip4_header_t *ip3 = vlib_buffer_get_current (b[3]);
+
+      /*
+       * Optimise for common case where feature arc indices are the same for
+       * all packets and for the case where the packet won't be dropped. This
+       * allows for use of vectorised store of next[0..3].
+       */
+      if (PREDICT_TRUE (vnet_buffer (b[0])->feature_arc_index ==
+			  vnet_buffer (b[1])->feature_arc_index &&
+			vnet_buffer (b[0])->feature_arc_index ==
+			  vnet_buffer (b[2])->feature_arc_index &&
+			vnet_buffer (b[0])->feature_arc_index ==
+			  vnet_buffer (b[3])->feature_arc_index))
+	{
+	  vnet_feature_next_u16 (&next[0], b[0]);
+	  next[1] = next[2] = next[3] = next[0];
+	}
+      else
+	{
+	  vnet_feature_next_u16 (&next[0], b[0]);
+	  vnet_feature_next_u16 (&next[1], b[1]);
+	  vnet_feature_next_u16 (&next[2], b[2]);
+	  vnet_feature_next_u16 (&next[3], b[3]);
+	}
+
+      vlib_error_t drop_error = node->errors[EXAMPLE_ERROR_DROP];
+
+      if (ip0->protocol == IP_PROTOCOL_ICMP)
+	{
+	  b[0]->error = drop_error;
+	  next[0] = EXAMPLE_DROP;
+	}
+
+      if (ip1->protocol == IP_PROTOCOL_ICMP)
+	{
+	  b[0]->error = drop_error;
+	  next[1] = EXAMPLE_DROP;
+	}
+
+      if (ip2->protocol == IP_PROTOCOL_ICMP)
+	{
+	  b[0]->error = drop_error;
+	  next[2] = EXAMPLE_DROP;
+	}
+
+      if (ip3->protocol == IP_PROTOCOL_ICMP)
+	{
+	  b[0]->error = drop_error;
+	  next[3] = EXAMPLE_DROP;
+	}
+
+      b += 4;
+      next += 4;
+      n_left -= 4;
+    }
+
   while (n_left > 0)
     {
       ip4_header_t *ip = vlib_buffer_get_current (b[0]);
+
+      /* Optimise for the case where the packet won't be dropped */
+      vnet_feature_next_u16 (&next[0], b[0]);
+
       if (ip->protocol == IP_PROTOCOL_ICMP)
 	{
 	  b[0]->error = node->errors[EXAMPLE_ERROR_DROP];
 	  next[0] = EXAMPLE_DROP;
-	  if (PREDICT_FALSE (b[0]->flags & VLIB_BUFFER_IS_TRACED))
+	}
+
+      b += 1;
+      next += 1;
+      n_left -= 1;
+    }
+
+  if (PREDICT_FALSE ((node->flags & VLIB_NODE_FLAG_TRACE)))
+    {
+      u16 i;
+      b = bufs;
+
+      for (i = 0; i < frame->n_vectors; i++)
+	{
+	  ip4_header_t *ip = vlib_buffer_get_current (b[0]);
+	  if (ip->protocol == IP_PROTOCOL_ICMP &&
+	      b[0]->flags & VLIB_BUFFER_IS_TRACED)
 	    {
 	      example_trace_t *t;
 
 	      t = vlib_add_trace (vm, node, b[0], sizeof (*t));
 	      t->header = *ip;
 	    }
-	}
-      else
-	{
-	  vnet_feature_next_u16 (&next[0], b[0]);
-	}
 
-      b += 1;
-      next += 1;
-      n_left -= 1;
+	  b += 1;
+	}
     }
 
   vlib_buffer_enqueue_to_next (vm, node, from, nexts, frame->n_vectors);
